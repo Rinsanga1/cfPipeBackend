@@ -6,6 +6,7 @@ from app.core.db import db
 
 api = Namespace("form", description="Form management")
 
+
 # Helper function to get exposed parameters
 def get_exposed_inputs(json_data):
     exposed_params = {}
@@ -15,26 +16,53 @@ def get_exposed_inputs(json_data):
             exposed_params[node_id] = node_data.get("inputs", {})
     return exposed_params
 
+
 # Swagger models
-exposed_params_model = api.model('ExposedParamsRequest', {
-    'workflow_id': fields.Integer(required=True, description='ID of the associated workflow'),
-})
+exposed_params_model = api.model(
+    "ExposedParamsRequest",
+    {
+        "workflow_id": fields.Integer(
+            required=True, description="ID of the associated workflow"
+        ),
+    },
+)
 
-select_params_model = api.model('SelectParamsRequest', {
-    'workflow_id': fields.Integer(required=True, description='ID of the associated workflow'),
-    'selected_params': fields.Raw(required=True, description='Dictionary with node IDs as keys and list of parameter names as values')
-})
+select_params_model = api.model(
+    "SelectParamsRequest",
+    {
+        "workflow_id": fields.Integer(
+            required=True, description="ID of the associated workflow"
+        ),
+        "selected_params": fields.Raw(
+            required=True,
+            description="Dictionary with node IDs as keys and list of parameter names as values",
+        ),
+    },
+)
 
-create_form_model = api.model('CreateFormRequest', {
-    'workflow_id': fields.Integer(required=True, description='ID of the associated workflow'),
-    'name': fields.String(required=True, description='Form name'),
-    'form_link': fields.String(required=True, description='Form link'),
-    'form_data': fields.Raw(required=True, description='Form data (selected exposed parameters)')
-})
+create_form_model = api.model(
+    "CreateFormRequest",
+    {
+        "workflow_id": fields.Integer(
+            required=True, description="ID of the associated workflow"
+        ),
+        "name": fields.String(required=True, description="Form name"),
+        "form_link": fields.String(required=True, description="Form link"),
+        "form_data": fields.Raw(
+            required=True, description="Form data (selected exposed parameters)"
+        ),
+    },
+)
 
-update_form_model = api.model('UpdateFormRequest', {
-    'form_data': fields.Raw(required=True, description='Updated form data (exposed parameters)')
-})
+update_form_model = api.model(
+    "UpdateFormRequest",
+    {
+        "form_data": fields.Raw(
+            required=True, description="Updated form data (exposed parameters)"
+        )
+    },
+)
+
 
 # Step 1: Retrieve Exposed Parameters
 @api.route("/exposed_params")
@@ -45,7 +73,7 @@ class ExposedParamsResource(Resource):
     def post(self):
         """Retrieve all exposed parameters of the specified workflow."""
         data = request.get_json()
-        workflow_id = data.get('workflow_id')
+        workflow_id = data.get("workflow_id")
 
         # Get the admin
         admin_email = get_jwt_identity()
@@ -60,7 +88,9 @@ class ExposedParamsResource(Resource):
 
         # Check ownership
         if workflow.admin_id != admin.id:
-            return {"message": "You do not have permission to access this workflow"}, 403
+            return {
+                "message": "You do not have permission to access this workflow"
+            }, 403
 
         # Get the workflow data
         json_data = workflow.workflow_data
@@ -70,17 +100,31 @@ class ExposedParamsResource(Resource):
 
         return jsonify(exposed_params)
 
-# Step 2: Select specific parameters to expose
+
 @api.route("/select_exposed_params")
 class SelectExposedParamsResource(Resource):
     @api.doc(security="jsonWebToken")
     @jwt_required()
     @api.expect(select_params_model)
     def post(self):
-        """Expose only the selected parameters from the workflow."""
+        """
+        example usage
+        curl -X 'POST' \
+  'http://127.0.0.1:5000/form/select_exposed_params' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer YOUR_TOKEN_HERE' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "workflow_id": 1,
+  "selected_params": {
+    "node_number": 14,
+    "key": "upload"
+  }
+}'
+            """
         data = request.get_json()
-        workflow_id = data.get('workflow_id')
-        selected_params = data.get('selected_params')
+        workflow_id = data.get("workflow_id")
+        selected_param = data.get("selected_params")
 
         # Get the admin
         admin_email = get_jwt_identity()
@@ -95,26 +139,33 @@ class SelectExposedParamsResource(Resource):
 
         # Check ownership
         if workflow.admin_id != admin.id:
-            return {"message": "You do not have permission to access this workflow"}, 403
+            return {
+                "message": "You do not have permission to access this workflow"
+            }, 403
 
         # Get the workflow data
         json_data = workflow.workflow_data
 
-        # Create a new JSON with only the selected parameters exposed
-        updated_json_data = {}
-        for node_id, params in selected_params.items():
-            if node_id in json_data:
-                node_data = json_data[node_id]
-                updated_json_data[node_id] = {
-                    '_meta': node_data.get('_meta', {}),
-                    'inputs': {}
-                }
-                # Include only the specified parameters
-                for param in params:
-                    if param in node_data.get('inputs', {}):
-                        updated_json_data[node_id]['inputs'][param] = node_data['inputs'][param]
+        # Modify the selected parameter
+        node_number = str(selected_param["node_number"])
+        key = selected_param["key"]
 
-        return jsonify(updated_json_data)
+        if node_number in json_data and "inputs" in json_data[node_number]:
+            if key in json_data[node_number]["inputs"]:
+                value = json_data[node_number]["inputs"][key]
+                if isinstance(value, str):
+                    json_data[node_number]["inputs"][key] = f"${{{key}}}"
+                elif isinstance(value, int):
+                    json_data[node_number]["inputs"][key] = f"%({key})d"
+                elif isinstance(value, float):
+                    json_data[node_number]["inputs"][key] = f"%({key})f"
+
+        # Update the workflow data in the database
+        workflow.workflow_data = json_data
+        db.session.commit()
+
+        return jsonify(json_data)
+
 
 # Step 3: Create a form with the specified exposed parameters
 @api.route("/create_form")
@@ -125,10 +176,10 @@ class CreateFormResource(Resource):
     def post(self):
         """Create a new form with the selected exposed parameters."""
         data = request.get_json()
-        workflow_id = data.get('workflow_id')
-        name = data.get('name')
-        form_link = data.get('form_link')
-        form_data = data.get('form_data')
+        workflow_id = data.get("workflow_id")
+        name = data.get("name")
+        form_link = data.get("form_link")
+        form_data = data.get("form_data")
 
         # Get the admin
         admin_email = get_jwt_identity()
@@ -143,20 +194,20 @@ class CreateFormResource(Resource):
 
         # Check ownership
         if workflow.admin_id != admin.id:
-            return {"message": "You do not have permission to access this workflow"}, 403
+            return {
+                "message": "You do not have permission to access this workflow"
+            }, 403
 
         # Create a new Form instance
         new_form = Form(
-            workflow_id=workflow_id,
-            name=name,
-            form_link=form_link,
-            form_data=form_data
+            workflow_id=workflow_id, name=name, form_link=form_link, form_data=form_data
         )
 
         db.session.add(new_form)
         db.session.commit()
 
         return {"message": "Form created successfully", "form_id": new_form.id}, 201
+
 
 # Endpoint to retrieve, update, and delete a specific form
 @api.route("/<int:form_id>")
@@ -197,7 +248,7 @@ class FormDetailResource(Resource):
     def put(self, form_id):
         """Update the exposed parameters of the form."""
         data = request.get_json()
-        new_form_data = data.get('form_data')
+        new_form_data = data.get("form_data")
 
         # Get the admin
         admin_email = get_jwt_identity()
@@ -244,6 +295,7 @@ class FormDetailResource(Resource):
 
         return {"message": "Form deleted successfully"}, 200
 
+
 # Endpoint to retrieve all forms
 @api.route("/")
 class FormListResource(Resource):
@@ -258,7 +310,8 @@ class FormListResource(Resource):
             return {"message": "Admin not found"}, 404
 
         # Retrieve all forms associated with the admin's workflows
-        forms = Form.query.join(Workflow).filter(Workflow.admin_id == admin.id).all()
+        forms = Form.query.join(Workflow).filter(
+            Workflow.admin_id == admin.id).all()
 
         # Format the response
         form_list = []
@@ -274,4 +327,3 @@ class FormListResource(Resource):
             )
 
         return jsonify(form_list)
-
