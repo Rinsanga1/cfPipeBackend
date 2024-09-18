@@ -2,6 +2,8 @@ from flask_restx import Api
 from .admin import api as admin_ns
 from .user import api as user_ns
 from .workflow import api as workflow_ns
+from .form import api as form_ns
+
 # Import other namespaces as needed
 
 authorizations = {
@@ -18,5 +20,6 @@ api = Api(
 api.add_namespace(admin_ns, path='/admin')
 api.add_namespace(user_ns, path='/user')
 api.add_namespace(workflow_ns, path='/workflow')
+api.add_namespace(form_ns, path='/form')
 # Add other namespaces as needed
 

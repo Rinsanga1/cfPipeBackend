@@ -73,3 +73,27 @@ class WorkflowResource(Resource):
         db.session.commit()
         
         return {'message': 'Workflow deleted successfully'}, 200
+    
+    @api.doc(security="jsonWebToken")
+    @jwt_required()
+    def get(self):
+        """Retrieve all workflows."""
+        admin_email = get_jwt_identity()
+        admin = Admin.query.filter_by(email=admin_email).first()
+        
+        if not admin:
+            return {'message': 'Admin not found'}, 404
+        
+        workflows = Workflow.query.all()
+        
+        # Format the response
+        workflow_list = []
+        workflow_list = []
+        for workflow in workflows:
+            workflow_list.append({
+                'id': workflow.id,
+                'admin_id': workflow.admin_id,
+                'name': workflow.name
+            })
+        
+        return {'workflows': workflow_list}, 200
